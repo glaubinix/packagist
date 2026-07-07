@@ -17,6 +17,7 @@ use App\Entity\OrganizationRepository;
 use App\Entity\OrganizationTeam;
 use App\Entity\OrganizationTeamKind;
 use App\Entity\OrganizationTeamMember;
+use App\Entity\OrganizationTeamMemberRepository;
 use App\Entity\OrganizationTeamRepository;
 use App\Entity\User;
 use App\Organization\OrganizationManager;
@@ -357,6 +358,61 @@ class OrganizationControllerTest extends IntegrationTestCase
         self::assertResponseStatusCodeSame(404);
     }
 
+    public function testOwnerAddsMemberToTeam(): void
+    {
+        $owner = self::createUser('owner', 'owner@example.org', roles: ['ROLE_ORGANIZATIONS']);
+        $owner->setTotpSecret('totp-secret');
+        $this->store($owner);
+
+        [$organization, $backend] = $this->createOrganizationWithCustomTeam($owner, 'acme', 'ACME Corp', 'backend');
+
+        $this->client->loginUser($owner);
+        $crawler = $this->client->request('GET', sprintf('/organizations/acme/teams/%s/members/add', $backend->teamId));
+
+        self::assertResponseIsSuccessful();
+        // The owner is already an org member (via the owners team), so they can be added to a custom team.
+        $form = $crawler->selectButton('Add member')->form(['add_team_member[username]' => 'owner']);
+        $this->client->submit($form);
+
+        self::assertResponseRedirects('/organizations/acme/teams');
+
+        $members = static::getService(OrganizationTeamMemberRepository::class)->findByTeam($backend->teamId);
+        $userIds = array_map(static fn (OrganizationTeamMember $m): int => $m->userId, $members);
+        self::assertContains($owner->getId(), $userIds);
+    }
+
+    public function testAddTeamMemberWithUnknownUserRerendersWithError(): void
+    {
+        $owner = self::createUser('owner', 'owner@example.org', roles: ['ROLE_ORGANIZATIONS']);
+        $owner->setTotpSecret('totp-secret');
+        $this->store($owner);
+
+        [, $backend] = $this->createOrganizationWithCustomTeam($owner, 'acme', 'ACME Corp', 'backend');
+
+        $this->client->loginUser($owner);
+        $crawler = $this->client->request('GET', sprintf('/organizations/acme/teams/%s/members/add', $backend->teamId));
+
+        $form = $crawler->selectButton('Add member')->form(['add_team_member[username]' => 'ghost']);
+        $crawler = $this->client->submit($form);
+
+        self::assertResponseIsSuccessful();
+        self::assertStringContainsString('No user "ghost" was found.', $crawler->text());
+    }
+
+    public function testAddTeamMemberToUnknownTeamReturns404(): void
+    {
+        $owner = self::createUser('owner', 'owner@example.org', roles: ['ROLE_ORGANIZATIONS']);
+        $owner->setTotpSecret('totp-secret');
+        $this->store($owner);
+
+        static::getService(OrganizationManager::class)->create($owner, 'acme', 'ACME Corp', null);
+
+        $this->client->loginUser($owner);
+        $this->client->request('GET', sprintf('/organizations/acme/teams/%s/members/add', new Ulid()));
+
+        self::assertResponseStatusCodeSame(404);
+    }
+
     public function testMemberCanViewTeamsButCannotCreate(): void
     {
         $owner = self::createUser('owner', 'owner@example.org', roles: ['ROLE_ORGANIZATIONS']);
@@ -421,6 +477,27 @@ class OrganizationControllerTest extends IntegrationTestCase
         self::assertNotNull($organization);
 
         $manager->edit($organization, $owner, $to, 'ACME Corp', null);
+    }
+
+    /**
+     * Bootstraps an organization through the event store and creates a custom (non-system) team.
+     *
+     * @return array{Organization, OrganizationTeam}
+     */
+    private function createOrganizationWithCustomTeam(User $owner, string $slug, string $displayName, string $teamName): array
+    {
+        static::getService(OrganizationManager::class)->create($owner, $slug, $displayName, null);
+        $organization = $this->organizations()->findOneBySlug($slug);
+        self::assertNotNull($organization);
+
+        static::getService(OrganizationMembershipManager::class)->createTeam($organization, $owner, $teamName, null);
+        foreach (static::getService(OrganizationTeamRepository::class)->findByOrg($organization->id) as $team) {
+            if ($team->name === $teamName) {
+                return [$organization, $team];
+            }
+        }
+
+        self::fail(sprintf('Team "%s" was not created.', $teamName));
     }
 
     private function createAdminWithTwoFactor(): User
