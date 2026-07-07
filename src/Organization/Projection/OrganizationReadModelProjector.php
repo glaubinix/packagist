@@ -85,7 +85,7 @@ final readonly class OrganizationReadModelProjector implements Projector
     {
         $createdBy = $this->user($recorded->actor->userId);
 
-        $this->getEM()->persist(new Organization(
+        $organization = new Organization(
             $event->organizationId,
             $event->slug,
             $event->displayName,
@@ -93,12 +93,13 @@ final readonly class OrganizationReadModelProjector implements Projector
             $recorded->occurredAt,
             $createdBy,
             $event->ownersTeamId,
-        ));
+        );
+        $this->getEM()->persist($organization);
 
         // The owners team is bootstrapped as part of OrganizationCreated, seeded with the creator.
         $this->getEM()->persist(new OrganizationTeam(
             $event->ownersTeamId,
-            $event->organizationId,
+            $organization,
             OrganizationTeamKind::System,
             \App\Organization\Domain\Organization::OWNERS_TEAM_NAME,
             $createdBy,
@@ -143,7 +144,7 @@ final readonly class OrganizationReadModelProjector implements Projector
     {
         $this->getEM()->persist(new OrganizationTeam(
             $event->teamId,
-            $event->organizationId,
+            $this->organization($event->organizationId),
             OrganizationTeamKind::Custom,
             $event->name,
             $this->user($recorded->actor->userId),
