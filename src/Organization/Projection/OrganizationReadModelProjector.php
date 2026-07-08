@@ -93,26 +93,35 @@ final readonly class OrganizationReadModelProjector implements Projector
             $recorded->occurredAt,
             $createdBy,
             $event->ownersTeamId,
+            $event->allMembersTeamId,
         );
         $this->getEM()->persist($organization);
 
-        // The owners team is bootstrapped as part of OrganizationCreated, seeded with the creator.
-        $this->getEM()->persist(new OrganizationTeam(
-            $event->ownersTeamId,
-            $organization,
-            OrganizationTeamKind::System,
-            \App\Organization\Domain\Organization::OWNERS_TEAM_NAME,
-            $createdBy,
-            $recorded->occurredAt,
-        ));
+        // Both system teams are bootstrapped as part of OrganizationCreated, seeded with the creator:
+        // the owners team (first owner) and the all-members team (the org-wide roster).
+        foreach ([
+            $event->ownersTeamId->toRfc4122() => \App\Organization\Domain\Organization::OWNERS_TEAM_NAME,
+            $event->allMembersTeamId->toRfc4122() => \App\Organization\Domain\Organization::ALL_ORGANIZATION_MEMBERS_TEAM_NAME,
+        ] as $teamId => $name) {
+            $teamId = Ulid::fromString($teamId);
 
-        $this->getEM()->persist(new OrganizationTeamMember(
-            $event->ownersTeamId,
-            $event->creatorUserId,
-            $event->organizationId,
-            $createdBy,
-            $recorded->occurredAt,
-        ));
+            $this->getEM()->persist(new OrganizationTeam(
+                $teamId,
+                $organization,
+                OrganizationTeamKind::System,
+                $name,
+                $createdBy,
+                $recorded->occurredAt,
+            ));
+
+            $this->getEM()->persist(new OrganizationTeamMember(
+                $teamId,
+                $event->creatorUserId,
+                $event->organizationId,
+                $createdBy,
+                $recorded->occurredAt,
+            ));
+        }
     }
 
     private function organizationNameChanged(OrganizationNameChanged $event): void

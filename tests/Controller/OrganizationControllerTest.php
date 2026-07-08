@@ -571,6 +571,59 @@ class OrganizationControllerTest extends IntegrationTestCase
         self::assertResponseStatusCodeSame(404);
     }
 
+    public function testAddMemberToAllMembersTeamReturns404(): void
+    {
+        $owner = self::createUser('owner', 'owner@example.org', roles: ['ROLE_ORGANIZATIONS']);
+        $owner->setTotpSecret('totp-secret');
+        $this->store($owner);
+
+        static::getService(OrganizationManager::class)->create($owner, 'acme', 'ACME Corp', null);
+        $organization = $this->organizations()->findOneBySlug('acme');
+        self::assertNotNull($organization);
+
+        $this->client->loginUser($owner);
+        $this->client->request('GET', sprintf('/organizations/acme/teams/%s/members/add', $organization->allMembersTeamId));
+
+        // The all-members team's roster is managed automatically; it has no manual add flow.
+        self::assertResponseStatusCodeSame(404);
+    }
+
+    public function testRemoveMemberFromAllMembersTeamReturns404(): void
+    {
+        $owner = self::createUser('owner', 'owner@example.org', roles: ['ROLE_ORGANIZATIONS']);
+        $owner->setTotpSecret('totp-secret');
+        $this->store($owner);
+
+        static::getService(OrganizationManager::class)->create($owner, 'acme', 'ACME Corp', null);
+        $organization = $this->organizations()->findOneBySlug('acme');
+        self::assertNotNull($organization);
+
+        $this->client->loginUser($owner);
+        $this->client->request('GET', sprintf('/organizations/acme/teams/%s/members/owner/remove', $organization->allMembersTeamId));
+
+        self::assertResponseStatusCodeSame(404);
+    }
+
+    public function testAllMembersTeamShownInTeamsListWithoutMemberControls(): void
+    {
+        $owner = self::createUser('owner', 'owner@example.org', roles: ['ROLE_ORGANIZATIONS']);
+        $owner->setTotpSecret('totp-secret');
+        $this->store($owner);
+
+        static::getService(OrganizationManager::class)->create($owner, 'acme', 'ACME Corp', null);
+        $organization = $this->organizations()->findOneBySlug('acme');
+        self::assertNotNull($organization);
+
+        $this->client->loginUser($owner);
+        $crawler = $this->client->request('GET', '/organizations/acme/teams');
+
+        self::assertResponseIsSuccessful();
+        self::assertStringContainsString('All organization members', $crawler->text());
+        self::assertStringContainsString('Membership is managed automatically', $crawler->text());
+        // No add/remove links point at the all-members team.
+        self::assertCount(0, $crawler->filter(sprintf('a[href*="/teams/%s/members"]', $organization->allMembersTeamId)));
+    }
+
     public function testMemberCanViewTeamsButCannotCreate(): void
     {
         $owner = self::createUser('owner', 'owner@example.org', roles: ['ROLE_ORGANIZATIONS']);
