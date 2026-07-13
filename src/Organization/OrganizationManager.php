@@ -48,7 +48,7 @@ final class OrganizationManager
         $organization = Organization::create(new Ulid(), $slug, $displayName, new Ulid(), new Ulid(), $owner->getId());
 
         try {
-            $this->eventStore->append($organization, Actor::owner($owner), $ip);
+            $this->eventStore->append($organization, Actor::member($owner), $ip);
         } catch (UniqueConstraintViolationException $e) {
             throw new SlugTakenException(sprintf('The organization slug "%s" is already taken.', $slug->value), 0, $e);
         }
@@ -101,7 +101,7 @@ final class OrganizationManager
     private function actorFor(User $actor, OrganizationReadModel $organization): Actor
     {
         if ($organization->createdBy?->getId() === $actor->getId()) {
-            return Actor::owner($actor);
+            return Actor::member($actor);
         }
 
         return Actor::packagistAdmin($actor);
