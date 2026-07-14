@@ -166,7 +166,10 @@ class OrganizationControllerTest extends IntegrationTestCase
         $organization = $this->organizations()->findOneBySlug('acme');
         self::assertNotNull($organization);
         self::assertSame('ACME Corp', $organization->displayName);
-        self::assertSame($admin->getId(), $organization->createdBy?->getId());
+        // The creator becomes the first owner (via the bootstrapped owners team).
+        self::assertTrue(
+            static::getService(OrganizationTeamMemberRepository::class)->isOwner($organization->ownersTeamId, $admin->getId()),
+        );
     }
 
     public function testCreateRendersFormErrorForReservedSlug(): void
@@ -894,7 +897,7 @@ class OrganizationControllerTest extends IntegrationTestCase
 
     private function persistOrganization(string $slug, string $displayName, ?User $owner = null, ?\DateTimeImmutable $deletedAt = null): Organization
     {
-        $organization = self::createOrganization($slug, $displayName, $owner, $deletedAt);
+        $organization = self::createOrganization($slug, $displayName, $deletedAt);
 
         $this->store($organization);
 
